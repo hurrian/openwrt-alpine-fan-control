@@ -1,0 +1,62 @@
+#!/bin/sh /etc/rc.common
+START=99
+SERVICE=alpine-fan-control
+
+USE_PROCD=1
+
+run_alpine_fan_control()
+{
+    config_get_bool enable $1 enable
+    if [ "$enable" -gt 0 ]; then
+	local min_temp
+	local min_speed
+	local mid_temp
+	local mid_speed
+	local max_temp
+	local max_speed
+	local interval
+	local debug
+	config_get min_temp $1 min_temp
+	config_get min_speed $1 min_speed
+	config_get mid_temp $1 mid_temp
+	config_get mid_speed $1 mid_speed
+	config_get max_temp $1 max_temp
+	config_get max_speed $1 max_speed
+	config_get interval $1 interval
+	config_get debug $1 debug
+	PROG="alpine-fan-controller $min_temp $min_speed $mid_temp $mid_speed $max_temp $max_speed $interval $debug"
+	logger "alpine-fan-control started."
+    else
+	logger "alpine-fan-control is disabled. check configuration?"
+    fi
+}
+
+start_service()
+{
+    config_load alpine-fan-control
+    config_foreach run_alpine_fan_control alpine-fan-control
+
+    procd_open_instance
+    procd_set_param command $PROG
+    procd_close_instance
+
+    logger $PROG
+}
+
+stop_service()
+{
+    ps -w | grep alpine-fan-controller | grep -v grep | awk -F ' ' '{print $1}' | xargs kill -9 2>/dev/null
+    logger "alpine-fan-controller stopped."
+}
+
+
+reload_service()
+{
+    stop
+    start
+}
+
+service_triggers()
+{
+    procd_add_reload_trigger "/etc/config/alpine-fan-control" "alpine-fan-control"
+}

@@ -1,0 +1,106 @@
+#!/bin/bash
+
+HYSTERESIS=0
+SLEEP_INTERVAL=$7
+DEBUG=$8
+TEMP_AT_LAST_SPEED_CHANGE=0
+
+# set temps (in degrees C) and corresponding fan speeds in ascending order and with the same amount of values
+TEMPS=( $1 $3 $5 )
+SPEED=( $2 $4 $6 )
+
+# hwmon paths, hardcoded for alpine platform, adjust as needed
+FILE_SPEED=$(echo /sys/bus/i2c/devices/0-003e/fan1_target)
+FILE_TEMP=$(echo /sys/class/thermal/thermal_zone0/temp)
+
+[[ -f "$FILE_SPEED" && -f "$FILE_TEMP" ]] || { logger "alpine-fan-controller: invalid hwmon files" ; exit 1; }
+
+# check if amount of temps and speed values match
+if [ "${#TEMPS[@]}" -ne "${#SPEED[@]}" ]
+then
+  echo "Amount of temperature and speed values does not match"
+  exit 1
+fi
+
+# checking for privileges
+if [ $UID -ne 0 ]
+then
+  echo "Writing to sysfs requires privileges, relaunch as root"
+  exit 1
+fi
+
+function debug {
+  if [ $DEBUG -gt 0 ]
+  then
+    logger $1
+  fi
+}
+
+function set_speed {
+  NEW_SPEED=$1
+  OLD_SPEED=$(cat $FILE_SPEED)
+
+  debug "current speed: $OLD_SPEED, requested to set speed to $NEW_SPEED"
+
+  if [ -z "$TEMP_AT_LAST_SPEED_CHANGE" ] || [ "$TEMP" -gt "$TEMP_AT_LAST_SPEED_CHANGE" ] || [ $(($(cat $FILE_TEMP) + HYSTERESIS)) -le "$TEMP_AT_LAST_SPEED_CHANGE" ]; then
+    $DEBUG || echo "current temp: $TEMP"
+    echo "temp at last change was $TEMP_AT_LAST_SPEED_CHANGE"
+    echo "changing speed to $NEW_SPEED"
+    echo "$NEW_SPEED" > "$FILE_SPEED"
+    TEMP_AT_LAST_SPEED_CHANGE=$(cat $FILE_TEMP)
+  else
+    debug "not changing speed, we just did at $TEMP_AT_LAST_SPEED_CHANGE, next change when below $((TEMP_AT_LAST_SPEED_CHANGE - HYSTERESIS))"
+  fi
+}
+
+function interpolate_speed {
+  i=0
+  TEMP=$(cat $FILE_TEMP)
+
+  debug "current temp: $TEMP"
+
+  if [[ $TEMP -le ${TEMPS[0]} ]]; then
+    # below first point in list, set to min speed
+    set_speed "${SPEED[i]}"
+    return
+  elif [[ $TEMP -gt ${TEMPS[-1]} ]]; then
+    # above last point in list, set to max speed
+    set_speed "${SPEED[-1]}"
+    return
+  fi
+
+  for i in "${!TEMPS[@]}"; do
+    if [[ $TEMP -gt ${TEMPS[$i]} ]]; then
+      continue
+    fi
+
+    # interpolate linearly
+    LOWERTEMP=${TEMPS[i-1]}
+    HIGHERTEMP=${TEMPS[i]}
+    LOWERSPEED=${SPEED[i-1]}
+    HIGHERSPEED=${SPEED[i]}
+    SPEED=$(( ( ($TEMP - $LOWERTEMP) * ( $HIGHERSPEED - $LOWERSPEED ) / ( $HIGHERTEMP - $LOWERTEMP ) ) + $LOWERSPEED ))
+    debug "interpolated speed value for temperature $TEMP is: $SPEED"
+    set_speed "$SPEED"
+    return
+  done
+}
+
+function reset_on_exit {
+  echo "exiting, going to max fan speed for safety..."
+  echo 4000 > /sys/bus/i2c/devices/0-003e/fan1_target
+  exit 0
+}
+
+# always try to reset fans on exit
+trap "reset_on_exit" SIGINT SIGTERM
+
+function run_daemon {
+  while :; do
+    interpolate_speed
+    sleep $SLEEP_INTERVAL
+  done
+}
+
+# finally start the loop
+run_daemon

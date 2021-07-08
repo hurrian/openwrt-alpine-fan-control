@@ -1,0 +1,14 @@
+fan_control=$(uci -q get alpine-fan-control.@alpine-fan-control[0])
+if [ -z "$fan_control" ]; then
+	uci set alpine-fan-control.@alpine-fan-control[0].enable="1"
+	uci set alpine-fan-control.@alpine-fan-control[0].debug="0"
+	uci set alpine-fan-control.@alpine-fan-control[0].min_temp="40"
+	uci set alpine-fan-control.@alpine-fan-control[0].min_speed="0"
+	uci set alpine-fan-control.@alpine-fan-control[0].mid_temp="50"
+	uci set alpine-fan-control.@alpine-fan-control[0].mid_speed="2500"
+	uci set alpine-fan-control.@alpine-fan-control[0].max_temp="65"
+	uci set alpine-fan-control.@alpine-fan-control[0].max_speed="4000"
+	uci set alpine-fan-control.@alpine-fan-control[0].interval="5"
+
+	uci commit alpine-fan-control
+fi

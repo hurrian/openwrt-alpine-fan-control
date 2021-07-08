@@ -1,0 +1,7 @@
+{
+  "luci-app-alpine-fan-control": {
+    "description": "Grant UCI access for luci-app-alpine-fan-control",
+    "read": { "uci": ["alpine-fan-control"] },
+    "write": { "uci": ["alpine-fan-control"] }
+  }
+}
