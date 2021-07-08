@@ -10,7 +10,7 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=alpine-fan-control
 PKG_VERSION:=1
 PKG_RELEASE:=1
-PKG_LICENSE:=GPL-2.0
+PKG_LICENSE:=GPL-3.0
 
 PKG_MAINTAINER:=Kenneth Kasilag <kenneth@kasilag.me>
 
