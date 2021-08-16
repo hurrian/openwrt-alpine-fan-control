@@ -10,7 +10,7 @@ TEMPS=( $1 $3 $5 )
 SPEED=( $2 $4 $6 )
 
 # hwmon paths, hardcoded for alpine platform, adjust as needed
-FILE_SPEED=$(echo /sys/bus/i2c/devices/0-003e/fan1_target)
+FILE_SPEED=$(echo /sys/bus/i2c/devices/0-003e/hwmon/hwmon0/fan1_target)
 FILE_TEMP=$(echo /sys/class/thermal/thermal_zone0/temp)
 
 [[ -f "$FILE_SPEED" && -f "$FILE_TEMP" ]] || { logger "alpine-fan-controller: invalid hwmon files" ; exit 1; }
