@@ -1,4 +1,4 @@
-#!/bin/bash /etc/rc.common
+#!/bin/sh /etc/rc.common
 START=99
 SERVICE=alpine-fan-control
 
@@ -26,9 +26,9 @@ run_alpine_fan_control()
 	config_get debug $1 debug
 
 	# Perform conversion to millidegrees Celsius
-	((min_temp = min_temp * 1000))
-	((mid_temp = mid_temp * 1000))
-	((max_temp = max_temp * 1000))
+	min_temp=$((min_temp * 1000))
+	mid_temp=$((mid_temp * 1000))
+	max_temp=$((max_temp * 1000))
 
 	PROG="alpine-fan-controller $min_temp $min_speed $mid_temp $mid_speed $max_temp $max_speed $interval $debug"
 	logger "alpine-fan-control started."
