@@ -1,104 +1,105 @@
-#!/bin/bash
+#!/bin/sh
 
 HYSTERESIS=0
-SLEEP_INTERVAL=$7
-DEBUG=$8
+SLEEP_INTERVAL="$7"
+DEBUG="$8"
 TEMP_AT_LAST_SPEED_CHANGE=0
 
 # set temps (in degrees C) and corresponding fan speeds in ascending order and with the same amount of values
-TEMPS=( $1 $3 $5 )
-SPEED=( $2 $4 $6 )
+TEMP_LOW="$1"
+TEMP_MID="$3"
+TEMP_HIGH="$5"
+SPEED_LOW="$2"
+SPEED_MID="$4"
+SPEED_HIGH="$6"
 
 # hwmon paths, hardcoded for alpine platform, adjust as needed
-FILE_SPEED=$(echo /sys/bus/i2c/devices/0-003e/hwmon/hwmon0/fan1_target)
-FILE_TEMP=$(echo /sys/class/thermal/thermal_zone0/temp)
+FILE_SPEED='/sys/class/hwmon/hwmon0/fan1_target'
+FILE_TEMP='/sys/class/thermal/thermal_zone0/temp'
+{ [ -f "$FILE_SPEED" ] && [ -f "$FILE_TEMP" ]; } || { logger "alpine-fan-controller: invalid hwmon files" ; exit 1; }
 
-[[ -f "$FILE_SPEED" && -f "$FILE_TEMP" ]] || { logger "alpine-fan-controller: invalid hwmon files" ; exit 1; }
-
-# check if amount of temps and speed values match
-if [ "${#TEMPS[@]}" -ne "${#SPEED[@]}" ]
-then
-  echo "Amount of temperature and speed values does not match"
-  exit 1
-fi
+# ensure we have 7+ inputs. Note: this replaces the check ensuring there are the same number of TEMP and SPEED input values.
+[ "$SLEEP_INTERVAL" -ge 0 ] || { logger "Amount of temperature and speed values does not match"; exit 1; }
 
 # checking for privileges
-if [ $UID -ne 0 ]
-then
-  echo "Writing to sysfs requires privileges, relaunch as root"
-  exit 1
-fi
+{ [ "$USER" = 'root' ] || [ "$UID" -eq 0 ] || [ "${USER}${UID}x" = 'x' ]; } || { logger "Writing to sysfs requires privileges, relaunch as root"; exit 1; }
 
-function debug {
-  if [ $DEBUG -gt 0 ]
-  then
-    logger $1
-  fi
+# set DEBUG to 0 if not given as input
+[ "$DEBUG" -gt 0 ] || DEBUG=0
+
+# ensure the temp limits are unique and monotomically increasing
+[ "$TEMP_MID" -gt "$TEMP_LOW" ] || TEMP_MID="$(($TEMP_LOW + 1))"
+[ "$TEMP_HIGH" -gt "$TEMP_MID" ] || TEMP_HIGH="$(($TEMP_MID + 1))"
+
+debug() {
+   [ "$DEBUG" -gt 0 ] && logger "$*"
 }
 
-function set_speed {
-  NEW_SPEED=$1
-  OLD_SPEED=$(cat $FILE_SPEED)
+set_speed() {
+  NEW_SPEED="$1"
+  OLD_SPEED="$(cat "$FILE_SPEED")"
 
   debug "current speed: $OLD_SPEED, requested to set speed to $NEW_SPEED"
 
-  if [ -z "$TEMP_AT_LAST_SPEED_CHANGE" ] || [ "$TEMP" -gt "$TEMP_AT_LAST_SPEED_CHANGE" ] || [ $(($(cat $FILE_TEMP) + HYSTERESIS)) -le "$TEMP_AT_LAST_SPEED_CHANGE" ]; then
-    $DEBUG || echo "current temp: $TEMP"
-    echo "temp at last change was $TEMP_AT_LAST_SPEED_CHANGE"
-    echo "changing speed to $NEW_SPEED"
+  if [ -z "$TEMP_AT_LAST_SPEED_CHANGE" ] || [ "$TEMP" -gt "$TEMP_AT_LAST_SPEED_CHANGE" ] || [ $(($(cat "$FILE_TEMP") + HYSTERESIS)) -le "$TEMP_AT_LAST_SPEED_CHANGE" ]; then
+    [ "$DEBUG" -gt 0 ] && { logger "current temp: $TEMP"; logger "temp at last change was $TEMP_AT_LAST_SPEED_CHANGE"; logger "changing speed to $NEW_SPEED"; } || { echo "current temp: $TEMP" >&2; echo "temp at last change was $TEMP_AT_LAST_SPEED_CHANGE" >&2; echo "changing speed to $NEW_SPEED" >&2; } 
     echo "$NEW_SPEED" > "$FILE_SPEED"
-    TEMP_AT_LAST_SPEED_CHANGE=$(cat $FILE_TEMP)
+    TEMP_AT_LAST_SPEED_CHANGE="$(cat "$FILE_TEMP")"
   else
     debug "not changing speed, we just did at $TEMP_AT_LAST_SPEED_CHANGE, next change when below $((TEMP_AT_LAST_SPEED_CHANGE - HYSTERESIS))"
   fi
 }
 
-function interpolate_speed {
-  i=0
-  TEMP=$(cat $FILE_TEMP)
+interpolate_speed() {
+  TEMP="$(cat "$FILE_TEMP")"
 
   debug "current temp: $TEMP"
 
-  if [[ $TEMP -le ${TEMPS[0]} ]]; then
-    # below first point in list, set to min speed
-    set_speed "${SPEED[i]}"
-    return
-  elif [[ $TEMP -gt ${TEMPS[-1]} ]]; then
-    # above last point in list, set to max speed
-    set_speed "${SPEED[-1]}"
-    return
-  fi
+  if [ "$TEMP" -le "$TEMP_LOW" ]; then
+    # TEMP below first point in list, set to min speed
+    SPEED="$SPEED_LOW"
 
-  for i in "${!TEMPS[@]}"; do
-    if [[ $TEMP -gt ${TEMPS[$i]} ]]; then
-      continue
-    fi
+  elif [ "$TEMP" -ge "$TEMP_HIGH" ]; then
+    # TEMP above last point in list, set to max speed
+    SPEED="$SPEED_HIGH"  
 
-    # interpolate linearly
-    LOWERTEMP=${TEMPS[i-1]}
-    HIGHERTEMP=${TEMPS[i]}
-    LOWERSPEED=${SPEED[i-1]}
-    HIGHERSPEED=${SPEED[i]}
-    SPEED=$(( ( ($TEMP - $LOWERTEMP) * ( $HIGHERSPEED - $LOWERSPEED ) / ( $HIGHERTEMP - $LOWERTEMP ) ) + $LOWERSPEED ))
+  elif [ "$TEMP" -eq "$TEMP_MID" ]; then
+    # TEMP equal to middle point in list, set to middle speed
+    SPEED="$SPEED_MID"
+
+  elif [ "$TEMP" -lt "$TEMP_MID" ]; then
+    # TEMP is between lower and middle points in list, interpolate
+    SPEED="$(( ( ( ( $TEMP - $TEMP_LOW ) * ( $SPEED_MID - $SPEED_LOW ) ) / ( $TEMP_MID - $TEMP_LOW ) ) + $SPEED_LOW ))"
+    debug "interpolated speed value for temperature $TEMP is: $SPEED"  
+
+  elif [ "$TEMP" -gt "$TEMP_MID" ]; then
+    # TEMP is between middle and upper points in list, interpolate
+    SPEED="$(( ( ( ( $TEMP - $TEMP_MID ) * ( $SPEED_HIGH - $SPEED_MID ) ) / ( $TEMP_HIGH - $TEMP_MID ) ) + $SPEED_MID ))"
     debug "interpolated speed value for temperature $TEMP is: $SPEED"
+
+  else
+    # unknown error - temp is not a number?
+    debug "unknown error - the temperature does not appear to be a number?"
+  fi
+  
     set_speed "$SPEED"
     return
-  done
+  
 }
 
-function reset_on_exit {
-  echo "exiting, going to max fan speed for safety..."
-  echo 4000 > /sys/bus/i2c/devices/0-003e/fan1_target
+reset_on_exit() {
+  echo "exiting, going to max fan speed for safety..." >&2
+  echo 4000 > "$FILE_SPEED"
   exit 0
 }
 
 # always try to reset fans on exit
-trap "reset_on_exit" SIGINT SIGTERM
+trap "reset_on_exit" INT TERM
 
-function run_daemon {
+run_daemon() {
   while :; do
     interpolate_speed
-    sleep $SLEEP_INTERVAL
+    sleep "$SLEEP_INTERVAL"
   done
 }
 
