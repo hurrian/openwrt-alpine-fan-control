@@ -21,7 +21,6 @@ include $(INCLUDE_DIR)/package.mk
 define Package/alpine-fan-control
 	SECTION:=utils
 	CATEGORY:=Utilities
-	DEPENDS:=bash
 	TITLE:=Fan control daemon for Annapurna Alpine devices (Netgear R9000, XR700)
 	PKGARCH:=all
 endef
