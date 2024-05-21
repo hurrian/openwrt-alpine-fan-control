@@ -7,10 +7,6 @@ The packages in this repository implement the ``alpine-fan-control`` daemon, and
 
 The fan control script borrows heavily from [amdgpu-fancontrol](https://github.com/grmat/amdgpu-fancontrol), as it implements linear slope/interpolation for the fan curve instead of the stock firmware's flat cutoffs.
 
-## Dependencies
-
-This package depends on ``bash``, due to the use of arrays. PRs to remove the dependency on ``bash`` are most welcome.
-
 ## Building
 
 ### Step 1
@@ -28,7 +24,6 @@ Enable building the packages.
 ```
 make menuconfig
 
-Utilities -> Shells -> bash <*>
 LuCI -> 3. Applications -> luci-app-alpine-fan-control <*>
 Utilities -> alpine-fan-control <*>
 ```
